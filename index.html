@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Halo | Smart Escalation Simulation</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;900&display=swap');
+        body { font-family: 'Inter', sans-serif; background: #020617; color: white; }
+        .emergency-ring { animation: ring 1.5s infinite; }
+        @keyframes ring {
+            0% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(225, 29, 72, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icon = ({ name, size = 24, className = "" }) => {
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name, size, className]);
+            return <i data-lucide={name} style={{ width: size, height: size }} className={className}></i>;
+        };
+
+        const App = () => {
+            const [view, setView] = useState('dashboard');
+            const [bpmInput, setBpmInput] = useState('');
+            const [limit, setLimit] = useState(120);
+            const [keywords, setKeywords] = useState(['help', 'emergency', 'pain']);
+            const [newKeyword, setNewKeyword] = useState('');
+            
+            // Alert States
+            const [isAlerting, setIsAlerting] = useState(false);
+            const [isMicActive, setIsMicActive] = useState(false);
+            const [countdown, setCountdown] = useState(15);
+            const [transcript, setTranscript] = useState('');
+            const [status, setStatus] = useState('Standby'); // Standby, Listening, Dispatched
+            
+            const recognitionRef = useRef(null);
+
+            // Initialize Speech Recognition
+            useEffect(() => {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                if (SpeechRecognition) {
+                    recognitionRef.current = new SpeechRecognition();
+                    recognitionRef.current.continuous = true;
+                    recognitionRef.current.interimResults = true;
+                    
+                    recognitionRef.current.onresult = (event) => {
+                        const current = event.resultIndex;
+                        const text = event.results[current][0].transcript.toLowerCase();
+                        setTranscript(text);
+
+                        // Check if any user-defined keyword is in the speech
+                        if (keywords.some(word => text.includes(word.toLowerCase()))) {
+                            handleEmergencyDispatch("Voice Triggered");
+                        }
+                    };
+                }
+            }, [keywords]);
+
+            // BPM Logic
+            const checkPulse = () => {
+                const val = parseInt(bpmInput);
+                if (val > limit) {
+                    startEscalation();
+                } else {
+                    alert("Pulse is within safe parameters.");
+                }
+            };
+
+            const startEscalation = () => {
+                setIsAlerting(true);
+                setCountdown(15);
+                setStatus('Listening');
+                setTranscript('Waiting for speech...');
+                
+                // TURN ON MICROPHONE ONLY NOW
+                setIsMicActive(true);
+                try {
+                    recognitionRef.current?.start();
+                } catch(e) { console.error("Mic already on or error:", e); }
+            };
+
+            // Countdown Logic
+            useEffect(() => {
+                let timer;
+                if (isAlerting && countdown > 0 && status === 'Listening') {
+                    timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+                } else if (countdown === 0 && status === 'Listening') {
+                    handleEmergencyDispatch("Timer Expired");
+                }
+                return () => clearTimeout(timer);
+            }, [isAlerting, countdown, status]);
+
+            const handleEmergencyDispatch = (reason) => {
+                setStatus('Dispatched');
+                setIsMicActive(false);
+                recognitionRef.current?.stop();
+            };
+
+            const stopAlert = () => {
+                setIsAlerting(false);
+                setIsMicActive(false);
+                recognitionRef.current?.stop();
+                setStatus('Standby');
+                setBpmInput('');
+            };
+
+            const addKeyword = () => {
+                if (newKeyword && !keywords.includes(newKeyword.toLowerCase())) {
+                    setKeywords([...keywords, newKeyword.toLowerCase()]);
+                    setNewKeyword('');
+                }
+            };
+
+            return (
+                <div className="min-h-screen max-w-md mx-auto bg-slate-950 flex flex-col border-x border-slate-800">
+                    {/* Header */}
+                    <header className="p-6 border-b border-slate-900 bg-slate-900/20 flex justify-between items-center">
+                        <div>
+                            <h1 className="text-2xl font-black text-cyan-500 italic">HALO</h1>
+                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.2em]">Escalation Protocol V2</p>
+                        </div>
+                        <div className="flex gap-4">
+                            <button onClick={() => setView('settings')} className={view === 'settings' ? 'text-cyan-400' : 'text-slate-500'}>
+                                <Icon name="settings" size={20} />
+                            </button>
+                            <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? 'text-cyan-400' : 'text-slate-500'}>
+                                <Icon name="activity" size={20} />
+                            </button>
+                        </div>
+                    </header>
+
+                    <main className="flex-1 p-6 space-y-6">
+                        {view === 'dashboard' ? (
+                            <div className="space-y-6">
+                                {/* BPM Status Card */}
+                                <div className="bg-slate-900/50 p-8 rounded-[2.5rem] border border-slate-800 text-center shadow-inner">
+                                    <div className="relative inline-block mb-4">
+                                        <Icon name="heart" size={48} className="text-rose-600 animate-pulse" />
+                                        <div className="absolute inset-0 bg-rose-600/20 blur-xl rounded-full"></div>
+                                    </div>
+                                    <div className="text-6xl font-black tracking-tighter mb-6">
+                                        {bpmInput || '00'} <span className="text-sm text-slate-600 font-normal">BPM</span>
+                                    </div>
+                                    <div className="space-y-4">
+                                        <input 
+                                            type="number" 
+                                            placeholder="Enter BPM to test" 
+                                            value={bpmInput} 
+                                            onChange={(e) => setBpmInput(e.target.value)}
+                                            className="w-full bg-black border border-slate-800 p-4 rounded-2xl text-center text-xl focus:border-cyan-500 outline-none transition-all"
+                                        />
+                                        <button 
+                                            onClick={checkPulse}
+                                            className="w-full bg-cyan-600 hover:bg-cyan-500 py-4 rounded-2xl font-bold shadow-lg shadow-cyan-900/20 transition-all active:scale-95"
+                                        >
+                                            Monitor Pulse
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Active Logic Info */}
+                                <div className="p-5 rounded-2xl bg-slate-900/30 border border-slate-800 text-xs text-slate-500 space-y-2">
+                                    <div className="flex items-center gap-2 text-cyan-500 font-bold uppercase">
+                                        <Icon name="zap" size={12} /> Smart Logic Active
+                                    </div>
+                                    <p>Mic will trigger automatically if BPM exceeds {limit}.</p>
+                                    <p>Listening for: {keywords.join(', ')}.</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4">
+                                <h2 className="text-xl font-bold">Emergency Keywords</h2>
+                                <p className="text-sm text-slate-500">The app will listen for these words only when high pulse is detected.</p>
+                                
+                                <div className="flex gap-2">
+                                    <input 
+                                        value={newKeyword}
+                                        onChange={(e) => setNewKeyword(e.target.value)}
+                                        placeholder="e.g. 'Help'" 
+                                        className="flex-1 bg-slate-900 border border-slate-800 p-3 rounded-xl outline-none"
+                                    />
+                                    <button onClick={addKeyword} className="bg-emerald-600 px-4 rounded-xl font-bold">Add</button>
+                                </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    {keywords.map(word => (
+                                        <div key={word} className="bg-slate-800 px-3 py-1 rounded-full flex items-center gap-2 border border-slate-700">
+                                            <span className="text-sm">{word}</span>
+                                            <button onClick={() => setKeywords(keywords.filter(k => k !== word))} className="text-slate-500 hover:text-rose-500">
+                                                <Icon name="x" size={14} />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <div className="pt-6 border-t border-slate-900">
+                                    <label className="text-xs font-bold text-slate-500 uppercase">Alert Threshold</label>
+                                    <input 
+                                        type="range" min="80" max="200" value={limit} 
+                                        onChange={(e) => setLimit(parseInt(e.target.value))}
+                                        className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500 mt-2" 
+                                    />
+                                    <div className="flex justify-between text-sm mt-2 font-mono">
+                                        <span>80 BPM</span>
+                                        <span className="text-cyan-400">{limit} BPM</span>
+                                        <span>200 BPM</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    {/* ESCALATION MODAL */}
+                    {isAlerting && (
+                        <div className="fixed inset-0 z-50 bg-slate-950/95 flex items-center justify-center p-8 backdrop-blur-xl">
+                            <div className="w-full text-center space-y-8">
+                                {status === 'Listening' ? (
+                                    <>
+                                        <div className="w-24 h-24 bg-rose-600 rounded-full flex items-center justify-center mx-auto emergency-ring">
+                                            <Icon name="mic" size={40} className="text-white animate-pulse" />
+                                        </div>
+                                        <div>
+                                            <h2 className="text-3xl font-black text-rose-500 mb-2">PULSE CRITICAL</h2>
+                                            <p className="text-slate-400">Microphone Active. Speak emergency word or click button.</p>
+                                        </div>
+                                        
+                                        <div className="bg-black/40 p-4 rounded-2xl border border-rose-500/20 italic text-cyan-400">
+                                            "{transcript}"
+                                        </div>
+
+                                        <div className="text-6xl font-black tabular-nums">{countdown}s</div>
+                                        
+                                        <button 
+                                            onClick={stopAlert}
+                                            className="w-full bg-emerald-600 py-5 rounded-3xl text-xl font-bold shadow-lg shadow-emerald-900/30"
+                                        >
+                                            YES I'M FINE
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="w-24 h-24 bg-rose-600 rounded-full flex items-center justify-center mx-auto">
+                                            <Icon name="shield-alert" size={40} className="text-white" />
+                                        </div>
+                                        <h2 className="text-3xl font-black">EMERGENCY DISPATCHED</h2>
+                                        <p className="text-slate-400">Authorities and contacts have been notified.</p>
+                                        <button onClick={stopAlert} className="w-full border-2 border-slate-800 py-4 rounded-3xl text-slate-500 font-bold">Dismiss Simulation</button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
